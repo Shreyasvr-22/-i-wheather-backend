@@ -1,47 +1,24 @@
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-import os
-from routes.market import router as market_router
+from fastapi import FastAPI
+from tensorflow.keras.models import load_model
+import numpy as np
+from pydantic import BaseModel
+from typing import List
 
-load_dotenv()
+app = FastAPI()
+model = load_model('rain_model.h5')  # Loads architecture + weights automatically [web:39]
 
-app = FastAPI(
-    title="Farmer Assistant - Market Price Prediction",
-    description="LSTM-based market price forecasting for Karnataka crops",
-    version="1.0.0"
-)
+class WeatherInput(BaseModel):
+    temp: float
+    humidity: float
+    pressure: float
+    wind_speed: float
+    # Add your exact features from training
 
-# CORS Configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include routes
-app.include_router(market_router, prefix="/api/market", tags=["market"])
-
-@app.get("/")
-def read_root():
-    return {
-        "message": "Farmer Assistant Market Price API",
-        "status": "running",
-        "docs": "/docs"
-    }
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8001,
-        log_level="info"
-    )
+@app.post("/predict")
+def predict_rain(data: WeatherInput):
+    # Reshape to match your model's input shape (e.g., [1, timesteps, features])
+    input_data = np.array([[data.temp, data.humidity, data.pressure, data.wind_speed]])
+    input_data = input_data.reshape(1, 1, input_data.shape[1])  # For LSTM single step
+    prediction = model.predict(input_data)[0][0]  # Rain probability %
+    return {"rain_probability": float(prediction * 100)}

@@ -1,83 +1,24 @@
-"""
-FastAPI Backend for Farmer Assistant - Weather Prediction API
-Multi-location LSTM Forecasting for Bangalore & surrounding districts
-"""
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from tensorflow.keras.models import load_model
+import numpy as np
 from pydantic import BaseModel
-from typing import Dict, Optional
-from datetime import datetime
-import logging
+from typing import List
 
-# Import custom modules
-from modules.weather_data import get_weather_data
-from modules.multi_location_predictor import MultiLocationPredictor
+app = FastAPI()
+model = load_model('rain_model.h5')  # Loads architecture + weights automatically [web:39]
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+class WeatherInput(BaseModel):
+    temp: float
+    humidity: float
+    pressure: float
+    wind_speed: float
+    # Add your exact features from training
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="Farmer Assistant - Weather Prediction API",
-    description="LSTM-based 1-month weather forecasting for multiple districts",
-    version="1.0.0"
-)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Global state
-predictor = None
-
-# ==================== PYDANTIC MODELS ====================
-
-class PredictionResponse(BaseModel):
-    date: str
-    temp_max: float
-    temp_min: float
-    rainfall: float
-
-class AlertResponse(BaseModel):
-    type: str
-    severity: str
-    message: str
-    date: Optional[str] = None
-
-class WeatherSummary(BaseModel):
-    avg_temp_max: float
-    avg_temp_min: float
-    total_rainfall: float
-    max_temp: float
-    min_temp: float
-    days_with_rain: int
-
-class ForecastRequest(BaseModel):
-    latitude: float
-    longitude: float
-    location: str
-
-class ForecastResponse(BaseModel):
-    status: str
-    data: Dict
-    timestamp: str
-
-# ==================== STARTUP & SHUTDOWN ====================
-
-@app.on_event("startup")
-async def startup_event():
-    """
-    Initialize multi-location predictor on startup
-    """
-    global predictor
-    try:
-        logger.info("Initializing Multi-Location Predictor...")
-        predictor = MultiLocationPredictor()
-        logger.info(f"✓ Predictor initialized successfully")
+@app.post("/predict")
+def predict_rain(data: WeatherInput):
+    # Reshape to match your model's input shape (e.g., [1, timesteps, features])
+    input_data = np.array([[data.temp, data.humidity, data.pressure, data.wind_speed]])
+    input_data = input_data.reshape(1, 1, input_data.shape[1])  # For LSTM single step
+    prediction = model.predict(input_data)[0][0]  # Rain probability %
+    return {"rain_probability": float(prediction * 100)}
